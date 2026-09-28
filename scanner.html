@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Escáner QR · Control de AZETAS</title>
+<script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+<style>
+body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#eef7f5;color:#17343d;display:flex;justify-content:center;min-height:100vh}
+.wrap{width:min(520px,calc(100% - 28px));margin:24px auto;background:#fff;border:1px solid #dce8e8;border-radius:22px;padding:24px;box-shadow:0 18px 55px rgba(20,65,76,.13);align-self:flex-start}
+h1{font-size:22px;margin:0 0 7px;color:#123b49}p{font-size:13px;line-height:1.5;color:#60777d;margin:0 0 18px}.badge{font-size:9px;letter-spacing:1.4px;font-weight:900;color:#079b73;margin-bottom:9px}
+#reader{width:100%;overflow:hidden;border-radius:14px}.estado{margin-top:14px;padding:11px 12px;background:#f4f8f8;border:1px solid #dce8e8;border-radius:10px;font-size:12px}.pie{margin-top:18px;text-align:center;font-size:9px;letter-spacing:1px;color:#789097}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="badge">LEO B. · TRANSFORMACIÓN DOCUMENTAL</div>
+  <h1>ESCANEAR CÓDIGO QR</h1>
+  <p>Apunta la cámara del celular al QR de la AZ. Cuando se detecte, el código se enviará automáticamente al sistema.</p>
+  <div id="reader"></div>
+  <div id="estado" class="estado">Esperando permiso de cámara...</div>
+  <div class="pie">CONTROL DE AZETAS COMERCIALES</div>
+</div>
+<script>
+const estado=document.getElementById('estado');
+let enviado=false;
+function limpiarCodigo(raw){
+  let v=String(raw||'').trim().toUpperCase();
+  try{
+    const u=new URL(v);
+    const q=u.searchParams.get('az')||u.searchParams.get('codigo');
+    if(q) v=q.trim().toUpperCase();
+  }catch(e){}
+  return v;
+}
+function onScanSuccess(decodedText){
+  if(enviado) return;
+  const codigo=limpiarCodigo(decodedText);
+  if(!codigo) return;
+  enviado=true;
+  estado.innerHTML='<strong>QR detectado:</strong> '+codigo+'<br>Regresando al sistema...';
+  try{ scanner.clear(); }catch(e){}
+  setTimeout(function(){
+    window.location.href=APP_URL+'#az='+encodeURIComponent(codigo);
+  },250);
+}
+function onScanFailure(){ }
+const APP_URL='https://script.google.com/a/macros/cextacbusinessgroup.com/s/AKfycbyTeE-DgOEMVFoBnYT8NDPypCf-hchaYFd1LGaf3bJA4rXaKg-5PZY-LTAaAub_Jls/exec';
+
+const scanner=new Html5QrcodeScanner('reader',{fps:10,qrbox:{width:250,height:250},rememberLastUsedCamera:true},false);
+scanner.render(onScanSuccess,onScanFailure);
+</script>
+</body>
+</html>
