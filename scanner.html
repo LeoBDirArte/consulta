@@ -56,7 +56,10 @@ function onScanSuccess(decodedText){
 
   // Respaldo para cuando el lector fue abierto directamente o en la misma pestaña.
   setTimeout(function(){
-    window.location.href=APP_URL+'#az='+encodeURIComponent(codigo);
+    const params=new URLSearchParams(window.location.search||'');
+    const session=params.get('session')||params.get('token')||'';
+    const destino=APP_URL+'?az='+encodeURIComponent(codigo)+'&session='+encodeURIComponent(session);
+    window.location.href=destino;
   },250);
 }
 
