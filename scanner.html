@@ -140,24 +140,10 @@ async function iniciarScanner() {
     }
 
     /*
-     * Solicitamos inicialmente cámara trasera si el navegador
-     * lo permite. En PC normalmente terminará utilizando la
-     * cámara disponible.
+     * Enumeramos directamente las cámaras disponibles.
+     * Evitamos abrir/cerrar un stream de prueba antes del lector,
+     * reduciendo el tiempo de arranque y evitando doble inicialización.
      */
-    const stream =
-      await navigator.mediaDevices.getUserMedia({
-        video:{
-          facingMode:{ideal:'environment'},
-          width:{ideal:1280},
-          height:{ideal:720}
-        },
-        audio:false
-      });
-
-    stream.getTracks().forEach(function(track){
-      track.stop();
-    });
-
     let camaras = [];
 
     try {
@@ -180,23 +166,27 @@ async function iniciarScanner() {
     scanner = new Html5Qrcode('reader');
 
     estado.innerHTML =
-      'Cámara activa. Apunte al QR de la AZETA...';
+      'Cámara activa. Apunte al QR de la AZETA. Lectura rápida activa...';
 
     await scanner.start(
       cameraId,
       {
-        fps:20,
+        fps:30,
+        formatsToSupport:[Html5QrcodeSupportedFormats.QR_CODE],
+        experimentalFeatures:{
+          useBarCodeDetectorIfSupported:true
+        },
         qrbox:function(viewfinderWidth, viewfinderHeight) {
 
           const lado = Math.floor(
             Math.min(
               viewfinderWidth,
               viewfinderHeight
-            ) * 0.70
+            ) * 0.80
           );
 
-          const limite = 360;
-          const minimo = 180;
+          const limite = 440;
+          const minimo = 220;
 
           return {
             width:Math.max(minimo,Math.min(lado,limite)),
@@ -204,7 +194,7 @@ async function iniciarScanner() {
           };
         },
         aspectRatio:1.777778,
-        disableFlip:false
+        disableFlip:true
       },
       onScanSuccess,
       onScanFailure
