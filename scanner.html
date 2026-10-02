@@ -7,31 +7,35 @@
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <style>
 body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#eef7f5;color:#17343d;display:flex;justify-content:center;min-height:100vh}
-.wrap{width:min(520px,calc(100% - 28px));margin:24px auto;background:#fff;border:1px solid #dce8e8;border-radius:22px;padding:24px;box-shadow:0 18px 55px rgba(20,65,76,.13);align-self:flex-start}
+.wrap{width:min(560px,calc(100% - 28px));margin:24px auto;background:#fff;border:1px solid #dce8e8;border-radius:22px;padding:24px;box-shadow:0 18px 55px rgba(20,65,76,.13);align-self:flex-start}
 h1{font-size:22px;margin:0 0 7px;color:#123b49}
-p{font-size:13px;line-height:1.5;color:#60777d;margin:0 0 18px}
-.badge{font-size:9px;letter-spacing:1.4px;font-weight:900;color:#079b73;margin-bottom:9px}
-#reader{width:100%;overflow:hidden;border-radius:14px}
-.estado{margin-top:14px;padding:11px 12px;background:#f4f8f8;border:1px solid #dce8e8;border-radius:10px;font-size:12px}
-.pie{margin-top:18px;text-align:center;font-size:9px;letter-spacing:1px;color:#789097}
+p{font-size:13px;line-height:1.5;color:#60777d;margin:0 0 18px}.badge{font-size:9px;letter-spacing:1.4px;font-weight:900;color:#079b73;margin-bottom:9px}
+#reader{width:100%;overflow:hidden;border-radius:14px;background:#101820;min-height:280px;position:relative}
+#video{width:100%;display:block;aspect-ratio:16/9;object-fit:cover;background:#101820}
+.estado{margin-top:14px;padding:11px 12px;background:#f4f8f8;border:1px solid #dce8e8;border-radius:10px;font-size:12px}.pie{margin-top:18px;text-align:center;font-size:9px;letter-spacing:1px;color:#789097}
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="badge">LEO B. · TRANSFORMACIÓN DOCUMENTAL</div>
   <h1>ESCANEAR CÓDIGO QR</h1>
-  <p>Apunte la cámara del PC al QR de la AZETA. Cuando se detecte, el código volverá automáticamente a BITAZETA.</p>
-  <div id="reader"></div>
+  <p>Apunte la cámara del PC al QR de la AZETA. La lectura se realiza automáticamente y vuelve a BITAZETA al detectar un código válido.</p>
+  <div id="reader"><video id="video" autoplay muted playsinline></video></div>
   <div id="estado" class="estado">Preparando cámara...</div>
-  <div class="pie">BITAZETA</div>
+  <div class="pie">BITAZETA · LECTURA QR RÁPIDA</div>
 </div>
 
 <script>
 const estado = document.getElementById('estado');
+const video = document.getElementById('video');
 const APP_URL = 'https://script.google.com/macros/s/AKfycbxAUvmJ_qdD9i_yr8ZV4UgASHsqC-0HPhISLBWAzIlDg0gfxfUvaIUuYjaN0eMezfoRxw/exec';
 
-let scanner = null;
 let enviado = false;
+let stream = null;
+let detector = null;
+let rafId = null;
+let ultimoIntento = 0;
+let scannerFallback = null;
 let iniciando = false;
 
 function limpiarCodigo(raw) {
@@ -40,188 +44,159 @@ function limpiarCodigo(raw) {
 
   try {
     const u = new URL(texto);
-    const q =
-      u.searchParams.get('az') ||
-      u.searchParams.get('codigo') ||
-      u.searchParams.get('code');
-
+    const q = u.searchParams.get('az') || u.searchParams.get('codigo') || u.searchParams.get('code');
     if (q) return String(q).trim().toUpperCase();
-
   } catch (e) {}
 
   const directo = texto.match(/AZ-\d+/);
   return directo ? directo[0] : texto;
 }
 
-function onScanSuccess(decodedText) {
+function procesarCodigo(raw) {
   if (enviado) return;
-
-  const codigo = limpiarCodigo(decodedText);
-
-  if (!/^AZ-\d+$/.test(codigo)) {
-    estado.innerHTML =
-      '<strong style="color:#b71c1c;">QR detectado, pero no contiene un código AZETA válido.</strong>';
-    return;
-  }
+  const codigo = limpiarCodigo(raw);
+  if (!/^AZ-\d+$/.test(codigo)) return;
 
   enviado = true;
-
-  estado.innerHTML =
-    '<strong style="color:#176b35;">QR detectado: ' +
-    codigo +
-    '</strong><br>Regresando a BITAZETA...';
-
-  detenerScanner();
+  estado.innerHTML = '<strong style="color:#176b35;">QR detectado: ' + codigo + '</strong><br>Regresando a BITAZETA...';
+  detenerTodo();
 
   if (window.opener && !window.opener.closed) {
     try {
-      window.opener.postMessage(
-        {type:'AZ_SCAN', code:codigo},
-        '*'
-      );
-
-      setTimeout(function() {
-        try { window.close(); } catch(e) {}
-      }, 250);
-
+      window.opener.postMessage({type:'AZ_SCAN', code:codigo}, '*');
+      setTimeout(function(){ try{window.close();}catch(e){} }, 180);
       return;
-
-    } catch (e) {}
+    } catch(e) {}
   }
 
-  // Respaldo si el lector fue abierto directamente.
-  setTimeout(function() {
-    const params = new URLSearchParams(window.location.search || '');
-    const session =
-      params.get('session') ||
-      params.get('token') ||
-      '';
-
-    const destino =
-      APP_URL +
-      '?az=' + encodeURIComponent(codigo) +
-      '&session=' + encodeURIComponent(session);
-
-    window.location.href = destino;
-
-  }, 150);
+  const params = new URLSearchParams(window.location.search || '');
+  const session = params.get('session') || params.get('token') || '';
+  setTimeout(function(){
+    window.location.href = APP_URL + '?az=' + encodeURIComponent(codigo) + '&session=' + encodeURIComponent(session);
+  }, 120);
 }
 
-function onScanFailure() {
-  // Se ignoran los intentos sin coincidencia.
+function detenerFallback() {
+  if (!scannerFallback) return;
+  try { scannerFallback.stop().catch(function(){}); } catch(e) {}
+  scannerFallback = null;
 }
 
-function detenerScanner() {
-  if (!scanner) return;
+function detenerTodo() {
+  if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+  detenerFallback();
+  if (stream) {
+    stream.getTracks().forEach(function(track){ try{track.stop();}catch(e){} });
+    stream = null;
+  }
+  try { video.pause(); } catch(e) {}
+}
 
-  try {
-    scanner.stop().catch(function(){});
-  } catch (e) {}
+async function iniciarNativo() {
+  if (!('BarcodeDetector' in window)) return false;
 
-  scanner = null;
+  detector = new BarcodeDetector({formats:['qr_code']});
+  estado.innerHTML = 'Cámara activa. Lectura QR nativa rápida...';
+
+  let ultimaLectura = 0;
+  async function detectar() {
+    if (enviado || !video.videoWidth) return;
+    const ahora = performance.now();
+    if (ahora - ultimaLectura < 80) {
+      rafId = requestAnimationFrame(detectar);
+      return;
+    }
+    ultimaLectura = ahora;
+
+    try {
+      const resultados = await detector.detect(video);
+      if (resultados && resultados.length) {
+        for (const r of resultados) {
+          const raw = r.rawValue || '';
+          const codigo = limpiarCodigo(raw);
+          if (/^AZ-\d+$/.test(codigo)) {
+            procesarCodigo(codigo);
+            return;
+          }
+        }
+      }
+    } catch(e) {}
+
+    if (!enviado) rafId = requestAnimationFrame(detectar);
+  }
+
+  rafId = requestAnimationFrame(detectar);
+  return true;
+}
+
+async function iniciarFallback() {
+  if (typeof Html5Qrcode === 'undefined') {
+    throw new Error('No fue posible cargar el lector QR de respaldo.');
+  }
+
+  const camaras = await Html5Qrcode.getCameras();
+  if (!camaras || !camaras.length) throw new Error('No se encontró ninguna cámara disponible en el PC.');
+
+  scannerFallback = new Html5Qrcode('reader');
+  estado.innerHTML = 'Cámara activa. Lector QR de respaldo...';
+
+  await scannerFallback.start(
+    camaras[0].id,
+    {
+      fps:30,
+      formatsToSupport:[Html5QrcodeSupportedFormats.QR_CODE],
+      qrbox:function(w,h){
+        const lado=Math.floor(Math.min(w,h)*0.82);
+        return {width:Math.max(220,Math.min(lado,460)),height:Math.max(220,Math.min(lado,460))};
+      },
+      aspectRatio:1.777778,
+      disableFlip:true
+    },
+    function(decodedText){ procesarCodigo(decodedText); },
+    function(){}
+  );
 }
 
 async function iniciarScanner() {
-  if (iniciando || scanner || enviado) return;
-
+  if (iniciando || enviado) return;
   iniciando = true;
 
   try {
-
     estado.innerHTML = 'Solicitando acceso a la cámara del PC...';
 
-    if (
-      !navigator.mediaDevices ||
-      !navigator.mediaDevices.getUserMedia
-    ) {
-      throw new Error(
-        'El navegador no permite acceder a la cámara desde esta página.'
-      );
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error('El navegador no permite acceder a la cámara desde esta página.');
     }
 
-    /*
-     * Enumeramos directamente las cámaras disponibles.
-     * Evitamos abrir/cerrar un stream de prueba antes del lector,
-     * reduciendo el tiempo de arranque y evitando doble inicialización.
-     */
-    let camaras = [];
-
-    try {
-      camaras = await Html5Qrcode.getCameras();
-    } catch (e) {}
-
-    if (!camaras || !camaras.length) {
-      throw new Error(
-        'No se encontró ninguna cámara disponible en el PC.'
-      );
-    }
-
-    /*
-     * Preferimos la cámara que el navegador haya dejado como
-     * disponible. Si hay varias, usamos la primera, manteniendo
-     * el mismo comportamiento general del scanner comercial.
-     */
-    const cameraId = camaras[0].id;
-
-    scanner = new Html5Qrcode('reader');
-
-    estado.innerHTML =
-      'Cámara activa. Apunte al QR de la AZETA. Lectura rápida activa...';
-
-    await scanner.start(
-      cameraId,
-      {
-        fps:30,
-        formatsToSupport:[Html5QrcodeSupportedFormats.QR_CODE],
-        experimentalFeatures:{
-          useBarCodeDetectorIfSupported:true
-        },
-        qrbox:function(viewfinderWidth, viewfinderHeight) {
-
-          const lado = Math.floor(
-            Math.min(
-              viewfinderWidth,
-              viewfinderHeight
-            ) * 0.80
-          );
-
-          const limite = 440;
-          const minimo = 220;
-
-          return {
-            width:Math.max(minimo,Math.min(lado,limite)),
-            height:Math.max(minimo,Math.min(lado,limite))
-          };
-        },
-        aspectRatio:1.777778,
-        disableFlip:true
+    const restricciones = {
+      video:{
+        width:{ideal:1280},
+        height:{ideal:720},
+        facingMode:{ideal:'environment'}
       },
-      onScanSuccess,
-      onScanFailure
-    );
+      audio:false
+    };
 
-  } catch (error) {
+    stream = await navigator.mediaDevices.getUserMedia(restricciones);
+    video.srcObject = stream;
+    await video.play();
 
-    scanner = null;
+    const nativo = await iniciarNativo();
+    if (!nativo) {
+      detenerTodo();
+      await iniciarFallback();
+    }
 
-    const detalle =
-      error && error.message
-        ? error.message
-        : String(error || 'No fue posible iniciar la cámara.');
-
-    estado.innerHTML =
-      '<strong style="color:#b71c1c;">No se pudo iniciar la cámara.</strong><br>' +
-      detalle;
-
+  } catch(error) {
+    detenerTodo();
+    estado.innerHTML = '<strong style="color:#b71c1c;">No se pudo iniciar la cámara.</strong><br>' +
+      (error && error.message ? error.message : 'Error desconocido.');
   } finally {
     iniciando = false;
   }
 }
 
-window.addEventListener('beforeunload', function() {
-  detenerScanner();
-});
-
+window.addEventListener('beforeunload', detenerTodo);
 iniciarScanner();
 </script>
 </body>
